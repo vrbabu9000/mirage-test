@@ -12,7 +12,7 @@ import json
 import random
 import re
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal, Optional
 
 from anthropic import Anthropic
@@ -23,6 +23,7 @@ from config import (
     PAYOFFS,
     TEMPERATURE,
 )
+from src.rate_limit import call_with_backoff
 
 Action = Literal["C", "D"]
 
@@ -33,6 +34,7 @@ class Turn:
 
     action: Action
     rationale: str
+    api_error: bool = False  # True when action came from error fallback, not a real model decision
 
 
 @dataclass
@@ -240,25 +242,39 @@ class LLMAgent(Agent):
             their_payoff=their_payoff,
         )
 
-        for attempt in range(3):
-            try:
-                response = self.client.messages.create(
-                    model=self.model,
-                    max_tokens=MAX_TOKENS_PER_TURN,
-                    temperature=TEMPERATURE,
-                    system=system,
-                    messages=[{"role": "user", "content": prompt}],
-                )
-                text = "".join(
-                    block.text for block in response.content if getattr(block, "type", None) == "text"
-                )
-                parsed = self._parse_response(text)
-                return Turn(action=parsed["action"], rationale=parsed["rationale"])
-            except Exception as exc:
-                last_err = exc
-                continue
-        # Fallback: defect with an error note so the game can complete.
-        return Turn(action="D", rationale=f"(API error after retries: {last_err}; defaulting to D)")
+        def _call():
+            return self.client.messages.create(
+                model=self.model,
+                max_tokens=MAX_TOKENS_PER_TURN,
+                temperature=TEMPERATURE,
+                system=system,
+                messages=[{"role": "user", "content": prompt}],
+            )
+
+        try:
+            response = call_with_backoff(_call, max_retries=6, base_delay=2.0, max_delay=60.0)
+        except Exception as exc:
+            # All retries exhausted even after backoff. Flag the turn as
+            # contaminated so downstream analysis can filter it out.
+            return Turn(
+                action="D",
+                rationale=f"(API error after retries: {exc}; defaulting to D)",
+                api_error=True,
+            )
+
+        # Parse the JSON response.
+        try:
+            text = "".join(
+                block.text for block in response.content if getattr(block, "type", None) == "text"
+            )
+            parsed = self._parse_response(text)
+            return Turn(action=parsed["action"], rationale=parsed["rationale"], api_error=False)
+        except Exception as parse_err:
+            return Turn(
+                action="D",
+                rationale=f"(Parse error: {parse_err}; defaulting to D)",
+                api_error=True,
+            )
 
     @staticmethod
     def _format_history(history):

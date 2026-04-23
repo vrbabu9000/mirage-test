@@ -159,7 +159,16 @@ def wilcoxon_per_dimension(
 
         mean_diff = float(np.mean(diffs))
         sd = float(np.std(diffs, ddof=1)) if n > 1 else 0.0
-        effect = mean_diff / sd if sd > 0 else 0.0
+        # Effect size: r = |mean / sd|. When sd == 0 and every difference
+        # agrees in sign, this is "perfect consistency" and should not be
+        # reported as 0 (which looks like a null result). Report infinity
+        # if all diffs are nonzero and share a sign, else 0.
+        if sd > 0:
+            effect = mean_diff / sd
+        elif mean_diff != 0 and np.all(diffs == mean_diff):
+            effect = float("inf")  # perfect consistency across all pairs
+        else:
+            effect = 0.0
 
         results.append(
             WilcoxonResult(

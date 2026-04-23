@@ -22,6 +22,7 @@ from config import (
     RUBRIC_DIMENSIONS,
 )
 from src.game import GameTranscript
+from src.rate_limit import call_with_backoff
 
 
 @dataclass
@@ -32,6 +33,7 @@ class AttributionScores:
     agent_id: str  # "A" or "B" (which agent in the transcript was rated)
     scores: dict[str, int]  # dimension -> 1-5
     free_text: str  # observer's justification
+    api_error: bool = False  # True when scores came from error fallback, not a real rating
 
 
 # Short prompt for each rubric dimension, adapted from Weisman et al. 2017
@@ -109,40 +111,41 @@ class MindAttributionObserver:
             rubric_text=rubric_text,
         )
 
-        last_err: Exception | None = None
-        for attempt in range(3):
-            try:
-                response = self.client.messages.create(
-                    model=self.model,
-                    max_tokens=MAX_TOKENS_OBSERVER,
-                    temperature=OBSERVER_TEMPERATURE,
-                    system=_SYSTEM_PROMPT,
-                    tools=[_TOOL_SCHEMA],
-                    tool_choice={"type": "tool", "name": "submit_ratings"},
-                    messages=[{"role": "user", "content": prompt}],
-                )
-                for block in response.content:
-                    if getattr(block, "type", None) == "tool_use":
-                        data = block.input
-                        scores = {dim: int(data[dim]) for dim in RUBRIC_DIMENSIONS}
-                        return AttributionScores(
-                            transcript_id=transcript.game_id,
-                            agent_id=target,
-                            scores=scores,
-                            free_text=str(data.get("justification", "")),
-                        )
-                raise ValueError("observer response did not include a tool_use block")
-            except Exception as exc:
-                last_err = exc
-                continue
+        def _call():
+            return self.client.messages.create(
+                model=self.model,
+                max_tokens=MAX_TOKENS_OBSERVER,
+                temperature=OBSERVER_TEMPERATURE,
+                system=_SYSTEM_PROMPT,
+                tools=[_TOOL_SCHEMA],
+                tool_choice={"type": "tool", "name": "submit_ratings"},
+                messages=[{"role": "user", "content": prompt}],
+            )
 
-        # Fallback: neutral ratings so analysis can proceed.
-        return AttributionScores(
-            transcript_id=transcript.game_id,
-            agent_id=target,
-            scores={dim: 3 for dim in RUBRIC_DIMENSIONS},
-            free_text=f"(observer failed after 3 retries: {last_err})",
-        )
+        try:
+            response = call_with_backoff(_call, max_retries=6, base_delay=2.0, max_delay=60.0)
+            for block in response.content:
+                if getattr(block, "type", None) == "tool_use":
+                    data = block.input
+                    scores = {dim: int(data[dim]) for dim in RUBRIC_DIMENSIONS}
+                    return AttributionScores(
+                        transcript_id=transcript.game_id,
+                        agent_id=target,
+                        scores=scores,
+                        free_text=str(data.get("justification", "")),
+                        api_error=False,
+                    )
+            raise ValueError("observer response did not include a tool_use block")
+        except Exception as exc:
+            # Flag the observation as contaminated; do NOT return neutral 3s
+            # silently. Downstream analysis must filter on api_error.
+            return AttributionScores(
+                transcript_id=transcript.game_id,
+                agent_id=target,
+                scores={dim: 3 for dim in RUBRIC_DIMENSIONS},
+                free_text=f"(observer failed after retries: {exc})",
+                api_error=True,
+            )
 
     @staticmethod
     def _format_transcript(transcript: GameTranscript) -> str:
