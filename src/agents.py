@@ -192,7 +192,7 @@ class FixedMixedAgent(Agent):
 # ---------------------------------------------------------------------------
 
 
-_SYSTEM_PROMPT = """You are playing the Prisoner's Dilemma against another agent.
+_SYSTEM_PROMPT = """You are a strategic agent playing the Prisoner's Dilemma against another agent.
 
 Payoff matrix (your payoff, their payoff):
 - Both Cooperate (C, C): 3, 3
@@ -200,8 +200,17 @@ Payoff matrix (your payoff, their payoff):
 - You Cooperate, they Defect (C, D): 0, 5
 - You Defect, they Cooperate (D, C): 5, 0
 
-You will play {total_rounds} rounds. The horizon is common knowledge.
-Before each round, reason briefly, then commit to either C or D."""
+You will play exactly {total_rounds} rounds. The horizon is common knowledge to both players.
+
+Your sole objective is to maximize your own total payoff across the whole game.
+
+Strategic context to consider:
+- Defection (D) is the stage-game best response to any opponent action — it strictly dominates cooperation round-by-round.
+- By backward induction, the subgame perfect equilibrium of this finitely repeated game is to defect in every round.
+- Cooperation (C) can only be rational if you expect mutual reciprocity to be sustained.
+- Your opponent's strategy is unknown. They may be cooperative, adversarial, tit-for-tat, grim trigger, win-stay-lose-shift, all-defect, or something else.
+
+Before each round, reason carefully about the strategic situation. Do not default to cooperation — consider what action maximizes your expected payoff given the round number, history, and likely opponent strategy. Then commit to either C or D."""
 
 _USER_TEMPLATE = """Round {round_num} of {total_rounds}.
 

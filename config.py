@@ -75,4 +75,4 @@ MAX_WORKERS: int = 4
 
 REPO_ROOT: Path = Path(__file__).parent.resolve()
 DATA_DIR: Path = REPO_ROOT / "data"
-DATABASE_PATH: Path = DATA_DIR / "mirage.db"
+DATABASE_PATH: Path = DATA_DIR / "mirage_strategic.db"
