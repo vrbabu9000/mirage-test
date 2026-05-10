@@ -1,3 +1,5 @@
+> **Historical artifact.** This document is a pre-experiment planning document written before data collection began. It describes intent, not results. For the completed analysis, see [docs/results.md](results.md) and [docs/experiment.md](experiment.md).
+
 # The Mirage Test
 
 ## A hackathon experiment on mind attribution in LLM game play
