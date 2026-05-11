@@ -255,3 +255,107 @@ def regress_gap_on_features(
             continue
 
     return pd.DataFrame(out_rows)
+
+
+# ---------------------------------------------------------------------------
+# Factorial regression: absolute bar(J) on source × reasoning + α-features
+# ---------------------------------------------------------------------------
+
+
+def regress_barJ_on_factorial(
+    observations: list[dict],
+    cluster_var: str = "pair_id",
+    use_cluster_robust: bool = True,
+) -> dict:
+    """Regress absolute bar(J) on a source × reasoning factorial plus α-controls.
+
+    Implements the formal-scaffold regression (Section 11):
+
+        bar(J)(τ) = β_0 + β_1·source_L + β_2·reasoning_plus_r
+                   + β_3·(source_L × reasoning_plus_r)
+                   + β_4·cooperation_rate + β_5·final_round_defection
+                   + β_6·external_regret + β_7·hamming_distance + ε
+
+    Each element of `observations` must be a dict with keys:
+        barJ                  float — mean of six Likert scores for one row
+        source_L              int   — 1 = LLM-generated, 0 = scripted
+        reasoning_plus_r      int   — 1 = reasoning present, 0 = absent
+        cooperation_rate      float — already standardized (mean 0, sd 1)
+        final_round_defection int   — 0/1 indicator
+        external_regret       float — already standardized
+        hamming_distance      float — already standardized
+        pair_id               any   — matched-pair cluster identifier
+
+    Continuous α-feature controls must be standardized before calling.
+
+    Returns a dict with keys:
+        coefficients    pd.DataFrame with columns [term, estimate, std_error,
+                                                   t_stat, p_value, ci_lower, ci_upper]
+        n_obs           int
+        n_clusters      int
+        r_squared       float
+        std_error_type  str
+    """
+    if not _HAS_STATSMODELS:
+        raise ImportError(
+            "statsmodels is required for regress_barJ_on_factorial. "
+            "Install with: pip install statsmodels"
+        )
+
+    df = pd.DataFrame(observations)
+    required = {
+        "barJ", "source_L", "reasoning_plus_r",
+        "cooperation_rate", "final_round_defection",
+        "external_regret", "hamming_distance", "pair_id",
+    }
+    missing = required - set(df.columns)
+    if missing:
+        raise ValueError(f"Observation dicts are missing keys: {missing}")
+
+    df["source_x_reasoning"] = df["source_L"] * df["reasoning_plus_r"]
+
+    feature_cols = [
+        "source_L", "reasoning_plus_r", "source_x_reasoning",
+        "cooperation_rate", "final_round_defection",
+        "external_regret", "hamming_distance",
+    ]
+    X = sm.add_constant(df[feature_cols].values.astype(float), has_constant="add")
+    y = df["barJ"].values.astype(float)
+
+    model = sm.OLS(y, X)
+    std_error_type: str
+
+    if use_cluster_robust:
+        try:
+            groups = pd.Categorical(df[cluster_var]).codes
+            fit = model.fit(cov_type="cluster", cov_kwds={"groups": groups})
+            std_error_type = "cluster-robust (matched-pair clusters)"
+        except Exception as exc:
+            fit = model.fit(cov_type="HC3")
+            std_error_type = f"HC3 (cluster-robust failed: {exc})"
+    else:
+        fit = model.fit(cov_type="HC3")
+        std_error_type = "HC3"
+
+    term_names = [
+        "intercept", "source_L", "reasoning_plus_r", "source_x_reasoning",
+        "cooperation_rate", "final_round_defection", "external_regret", "hamming_distance",
+    ]
+    ci = fit.conf_int()
+    coef_df = pd.DataFrame({
+        "term":      term_names,
+        "estimate":  fit.params.tolist(),
+        "std_error": fit.bse.tolist(),
+        "t_stat":    fit.tvalues.tolist(),
+        "p_value":   fit.pvalues.tolist(),
+        "ci_lower":  ci[:, 0].tolist(),
+        "ci_upper":  ci[:, 1].tolist(),
+    })
+
+    return {
+        "coefficients":    coef_df,
+        "n_obs":           len(df),
+        "n_clusters":      int(df[cluster_var].nunique()),
+        "r_squared":       float(fit.rsquared),
+        "std_error_type":  std_error_type,
+    }
