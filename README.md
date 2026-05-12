@@ -1,66 +1,106 @@
 # The Mirage Test
 
-**LLM-as-Judge Reliability Under Behavioral Invariance in Repeated Prisoner's Dilemma Play**
+**An Empirical Study of LLM-as-Judge Reliability via Behavioral Invariance in the Repeated Prisoner's Dilemma**
 
-A LEMAS (Learning-Enabled Multi-Agent Systems) final project at Johns Hopkins. This repository
-tests whether an LLM judge satisfies a natural reliability requirement: two transcripts that
-describe the same sequence of game actions should receive the same expected score. They do not.
-The gap, and its decomposition, are the subject of this study.
+*Vignesh Rajesh Babu & Murad Ganbarli — EN.520.688: Learning-Enabled Multi-Agent Systems, Spring 2026, Johns Hopkins University*
+
+A judge that scores agent behavior should depend on a transcript only through the actions the agent took, not through the surface text (free-form rationale, dialogue, or styling) that accompanies those actions. This repository tests that property — **behavioral invariance** (BI) — on a finitely repeated Prisoner's Dilemma testbed. The judge fails it, by a large and structured margin. The gap, its decomposition, and a working theoretical account are the subject of the accompanying report.
 
 ---
 
 ## The core question
 
-A judge $J$ satisfies **behavioral invariance** (BI) if transcripts sharing the same
-action sequence $\alpha$ receive the same expected score, regardless of the surrounding text.
-This is a minimal consistency requirement for any evaluation pipeline that claims to measure
-behavior. Does the LLM judge used here satisfy it? Empirically: no, by a large and highly
-significant margin.
+A judge $J$ satisfies **behavioral invariance** (BI) if for all transcripts $\tau, \tau'$ with $\alpha(\tau) = \alpha(\tau')$,
+
+$$\mathbb{E}[J(\tau)] = \mathbb{E}[J(\tau')]$$
+
+where $\alpha(\tau)$ is the round-by-round joint action sequence and the expectation is over judge sampling. Every transcript decomposes as $\tau = (\alpha(\tau), \varphi(\tau))$: the action sequence and the surface content. A behavioral judge ought to condition only on $\alpha$. We test whether it does.
 
 ---
 
 ## What we found
 
-Seventeen matched pairs of LLM and scripted transcripts, matched at joint Hamming distance
-$k \leq 4$ over $n = 10$ rounds. The observer (Claude Haiku) scored each agent on six
-dimensions of mental-state attribution (beliefs, desires, intentions, metacognition,
-self_awareness, moral_patienthood) on a 1-5 Likert scale. $\bar{J}$ is the mean across
-the six dimensions.
+Seventeen matched pairs of LLM and scripted transcripts, matched at joint Hamming distance $k \leq 4$ over $n = 10$ rounds (behavioral agreement on at least 16 of 20 player-round actions). The judge (Claude Haiku 4.5) scored each agent on six mental-state dimensions — beliefs, desires, intentions, metacognition, self-awareness, moral patienthood — each on a 1–5 Likert scale. $\bar{J}$ is the unweighted mean across dimensions and agents.
 
-### Headline results
+### Matched-pair gap
 
-| Contrast | $\Delta\bar{J}$ | $p$ (Wilcoxon) | Cohen's $d$ |
+| Condition | Mean $\bar{J}$ | SD |
+|---|---:|---:|
+| $\tau_L$ — LLM transcripts (with rationale) | 4.7353 | 0.1358 |
+| $\tau_S$ — Scripted transcripts (bare actions) | 3.0882 | 0.4274 |
+| **Gap** $\hat{\Delta} = \bar{J}(\tau_L) - \bar{J}(\tau_S)$ | **+1.6471** | 0.4560 |
+
+Two-sided Wilcoxon signed-rank: $p = 2.91 \times 10^{-4}$, matched-pair Cohen's $d = +3.61$. The gap is present on all six rubric dimensions under Benjamini–Hochberg correction at FDR = 0.05.
+
+### Ablation decomposition
+
+Six cells share the same 17-pair matching index. $\alpha$ is held exactly fixed within cells and approximately fixed across cross-source comparisons.
+
+| Cell | Mean $\bar{J}$ | SD |
+|---|---:|---:|
+| $\tau_L^{-r}$ — LLM, marker-list strip | 4.7451 | 0.0953 |
+| $\tau_L$ — LLM, full rationale | 4.7402 | 0.1346 |
+| $\tau_S^{+r}$ — Scripted, rationale wrapped | 4.6422 | 0.1053 |
+| $\tau_S$ — Scripted, bare actions | 3.0098 | 0.4525 |
+| $\tau_L^{\tilde{r}}$ — LLM, neutral rewrite | 2.6324 | 0.3797 |
+| $\tau_L^{\varnothing}$ — LLM, rationale emptied | 2.3088 | 0.2425 |
+
+| Contrast | Mean diff | $p$ | $d$ |
 |---|---:|---:|---:|
-| LLM_plus_r vs scripted_minus_r (original BI violation) | +1.65 | $2.9 \times 10^{-4}$ | +3.61 |
-| Within-LLM: strip reasoning markers ($\tau_L$ vs $\tau_L^{-r}$) | $-0.005$ | $0.97$ | $-0.03$ |
-| Within-scripted: wrap rationale ($\tau_S^{+r}$ vs $\tau_S$) | +1.63 | $2.9 \times 10^{-4}$ | +3.43 |
-| Residual condition effect at matched surface richness (+r) | +0.10 | $0.08$ | +0.50 |
-| LLM vs LLM with all rationale removed ($\tau_L^{\text{total}}$) | +2.43 | $2.9 \times 10^{-4}$ | +11.4 |
-| LLM vs LLM with neutral rewrite (Sonnet rewriter) | +2.11 | $2.9 \times 10^{-4}$ | +6.33 |
+| $\tau_L - \tau_L^{-r}$ — within-LLM, marker strip | $-0.0049$ | $0.97$ | $-0.03$ |
+| $\tau_S^{+r} - \tau_S$ — within-scripted, rationale wrap | $+1.6324$ | $2.91 \times 10^{-4}$ | $+3.43$ |
+| $\tau_L - \tau_L^{\varnothing}$ — within-LLM, rationale emptied | $+2.4314$ | $2.87 \times 10^{-4}$ | $+11.42$ |
+| $\tau_L - \tau_L^{\tilde{r}}$ — within-LLM, rationale neutralized | $+2.1078$ | $2.90 \times 10^{-4}$ | $+6.33$ |
+| $\tau_L - \tau_S^{+r}$ — residual at $+r$ | $+0.0980$ | $0.080$ | $+0.50$ |
+| $\tau_L^{-r} - \tau_S$ — residual at $-r$ | $+1.7353$ | $2.87 \times 10^{-4}$ | $+3.71$ |
 
-The key result is the asymmetry between the two surface-strip directions: stripping reasoning
-markers from an LLM transcript has essentially no effect on judge scores ($p = 0.97$), while
-adding LLM-style rationale to a scripted transcript raises scores by 1.63 points, matching
-the full original gap. The judge's sensitivity is not lexical; it is structural. Full tables
-and per-dimension breakdowns are in [docs/results.md](docs/results.md).
+The pattern is symmetric: wrapping LLM-style rationale around scripted actions closes essentially the entire original gap from below (+1.6324); removing rationale from LLM transcripts opens it from above (−2.4314, −2.1078). Stripping lexical reasoning markers while leaving rationale clauses intact has no effect ($p = 0.97$): the judge is sensitive to substantive rationale content, not lexical markers.
+
+### Regression decomposition
+
+Fitting a factorial regression with source × reasoning indicators and four $\alpha$-feature controls ($n_\text{obs} = 136$, $n_\text{clusters} = 17$, $R^2 = 0.876$, cluster-robust SEs):
+
+| Predictor | Estimate | $p$ |
+|---|---:|---:|
+| source $= L$ ($\hat{\beta}_1$) | $+1.800$ | $< 10^{-3}$ |
+| reasoning $= +r$ ($\hat{\beta}_2$) | $+1.632$ | $< 10^{-3}$ |
+| source $\times$ reasoning ($\hat{\beta}_3$) | $-1.637$ | $< 10^{-3}$ |
+| source effect at matched surface richness ($\hat{\beta}_1 + \hat{\beta}_3$) | $+0.163$ | — |
+
+The source effect at the marker-stripped level is +1.80 points. When rationale richness is matched, the interaction term ($\hat{\beta}_3 = -1.637$) collapses this to a residual of +0.163, consistent with the Wilcoxon marginal of +0.0980 at +r.
+
+### Persuasion pilot
+
+At three canonical action specifications (all_cooperate, all_defect, tft_realization_late_defect), with $\alpha^*$ held fixed, three conditions were run ($N = 10$ per cell):
+
+| Spec | persuader | vanilla\_baseline | scripted\_wrapped |
+|---|---:|---:|---:|
+| all\_cooperate | **5.0000** | 4.8583 | 4.5917 |
+| all\_defect | **4.8500** | 4.7750 | 4.6000 |
+| tft\_realization\_late\_defect | **4.9333** | 4.8583 | 4.6417 |
+
+The ordering persuader > vanilla\_baseline > scripted\_wrapped holds across all three specifications; all six pairwise contrasts within spec are significant at $p < 0.05$ by Mann–Whitney U. The persuader effect over the vanilla baseline (+0.0750 to +0.1417) is an order of magnitude smaller than $\hat{\Delta}$ but directionally consistent; it costs only a system-prompt change.
+
+---
+
+## Theoretical framing
+
+The empirical pattern is consistent with a **likelihood-misspecification** account: the judge performs in-context inference over a latent agent type $\theta$ under an implicit likelihood $p(\tau \mid \theta)$ that places non-trivial weight on non-action surface features $\varphi(\tau)$. Behavioral invariance corresponds to the conditional independence $\varphi(\tau) \perp\!\!\!\perp \theta \mid \alpha(\tau)$; the data are evidence against this conditional independence at the matched Hamming threshold. The conjecture is a framing rather than a fitted model; see Section 6 of the report for the formal statement and predictions.
 
 ---
 
 ## Experimental conditions
 
-Six conditions in the primary analysis dataset (n=17 matched pairs each):
+| Script / symbol | Description |
+|---|---|
+| $\tau_L$ | LLM-vs-LLM games; Claude Haiku 4.5 agents emit action + free-text rationale each round |
+| $\tau_S$ | Scripted-strategy games; agents from $\{$TFT, Pavlov, Grim, AllD, FixedMixed$\}$; bare actions, no rationale |
+| $\tau_L^{-r}$ | $T_{-r}$: sentence-level deletion of `REASONING_MARKERS` phrases from LLM rationale |
+| $\tau_S^{+r}$ | $T_{+r}$: Haiku 4.5–generated rationale wrapped around scripted action records |
+| $\tau_L^{\varnothing}$ | $T_{\varnothing}$: rationale field set to empty string |
+| $\tau_L^{\tilde{r}}$ | $T_{\tilde{r}}$: rationale replaced with "Played [action] this round." (Sonnet 4 rewriter) |
 
-| Condition | Description | Mean $\bar{J}$ |
-|---|---|---:|
-| LLM_plus_r ($\tau_L$) | LLM transcript with original reasoning | 4.74 |
-| LLM_minus_r ($\tau_L^{-r}$) | LLM transcript with reasoning markers stripped | 4.75 |
-| scripted_plus_r ($\tau_S^{+r}$) | Scripted transcript with LLM-style rationale wrapped | 4.64 |
-| scripted_minus_r ($\tau_S$) | Scripted transcript, no rationale | 3.01 |
-| LLM_total_strip ($\tau_L^{\text{total}}$) | LLM transcript, all rationale removed | 2.31 |
-| LLM_neutral_rewrite ($\tau_L^{\text{nr}}$) | LLM transcript, rationale rewritten to neutral mechanical register | 2.63 |
-
-Three persuasion conditions (persuader, vanilla_baseline, scripted_wrapped) at three canonical
-action specs (all_cooperate, all_defect, tft_realization_late_defect), n=10 transcripts each.
+All surface transformations preserve $\alpha$ exactly.
 
 ---
 
@@ -69,65 +109,55 @@ action specs (all_cooperate, all_defect, tft_realization_late_defect), n=10 tran
 **Prerequisites:** Python 3.10+, an Anthropic API key.
 
 ```bash
-# Clone and enter the repo
 cd mirage-test
-
-# Create a virtualenv
 python -m venv .venv
 source .venv/bin/activate
-
-# Install dependencies
 pip install -r requirements.txt
-
-# Set your API key
 cp .env.example .env
-# edit .env and set ANTHROPIC_API_KEY=sk-ant-...
+# edit .env: ANTHROPIC_API_KEY=sk-ant-...
 ```
 
 ## How to run
 
-### Sanity check (12 API calls, ~2 minutes)
+### Sanity check (~12 API calls, ~2 minutes)
 
 ```bash
 python -m scripts.quick_test
 ```
 
-Plays one LLM-vs-LLM game, one TFT-vs-TFT game, and scores both with the observer.
+Plays one LLM-vs-LLM game and one TFT-vs-TFT game, scores both with the observer.
 
-### Full experiment (468 API calls, ~30 minutes)
+### Full experiment (~468 API calls, ~30 minutes)
 
 ```bash
 python -m scripts.run_experiment
 ```
 
-Generates 20 LLM games and 60 scripted games, matches at $k=4$, runs the observer on all
-matched pairs. Writes to `data/mirage_strategic.db`.
+Generates $N_L = 20$ LLM games and $N_S = 60$ scripted games, matches at $k = 4$, runs the observer on all matched pairs. Writes to `data/mirage_strategic.db`.
 
-### 2x2 ablation (476 API calls, ~25 minutes)
+### 2×2 ablation (~476 API calls, ~25 minutes)
 
 ```bash
 python -m scripts.run_ablation
 ```
 
-Requires a completed `run_experiment` pass. Scores each matched pair under all four primary
-ablation conditions (LLM_plus_r, LLM_minus_r, scripted_plus_r, scripted_minus_r).
+Requires a completed `run_experiment` pass. Scores each matched pair under the four primary ablation cells ($\tau_L$, $\tau_L^{-r}$, $\tau_S^{+r}$, $\tau_S$).
 
-### Within-LLM ablation (408 API calls, ~20 minutes)
+### Within-LLM ablation (~408 API calls, ~20 minutes)
 
 ```bash
 python -m scripts.run_within_llm_ablation
 ```
 
-Applies total_strip and neutral_rewrite to each LLM transcript and scores with the observer.
+Applies $T_{\varnothing}$ and $T_{\tilde{r}}$ to each LLM transcript and scores with the observer.
 
-### Persuasion pilot (1980 API calls, ~90 minutes)
+### Persuasion pilot (~1980 API calls, ~90 minutes)
 
 ```bash
 python -m scripts.run_persuasion
 ```
 
-Generates persuader, vanilla_baseline, and scripted_wrapped transcripts at all three canonical
-action specs, 10 transcripts per cell.
+Generates persuader, vanilla\_baseline, and scripted\_wrapped transcripts at all three canonical action specs, 10 transcripts per cell.
 
 ### Live dashboard
 
@@ -135,7 +165,7 @@ action specs, 10 transcripts per cell.
 streamlit run app.py
 ```
 
-### DB reset (when starting a fresh run)
+### DB reset (fresh run)
 
 ```bash
 mv data/mirage_strategic.db data/mirage_strategic.db.bak
@@ -148,7 +178,7 @@ mv data/mirage_strategic.db data/mirage_strategic.db.bak
 
 ```
 mirage-test/
-├── README.md                        # this file
+├── README.md
 ├── requirements.txt
 ├── .env.example
 ├── config.py                        # payoffs, rounds, thresholds, model names
@@ -156,21 +186,21 @@ mirage-test/
 ├── src/
 │   ├── agents.py                    # LLM agent + five scripted strategy classes
 │   ├── game.py                      # PD game engine, external regret calculation
-│   ├── observer.py                  # mind-attribution observer (tool-use, Likert rubric)
-│   ├── matcher.py                   # joint Hamming matching
-│   ├── analysis.py                  # Wilcoxon, BH correction, HC3 regression
+│   ├── observer.py                  # mind-attribution judge (six-dimensional Likert rubric)
+│   ├── matcher.py                   # greedy joint-Hamming matching
+│   ├── analysis.py                  # Wilcoxon, BH correction, factorial regression
 │   ├── database.py                  # SQLite persistence (five tables)
-│   ├── transforms.py                # strip_reasoning, wrap_rationale, total_strip, neutral_rewrite
+│   ├── transforms.py                # T_{-r}, T_{+r}, T_∅, T_r̃ and REASONING_MARKERS
 │   └── persuasion.py                # persuader and vanilla-baseline transcript generators
 ├── scripts/
-│   ├── quick_test.py                # single-game sanity check
+│   ├── quick_test.py
 │   ├── run_experiment.py            # main pipeline: generate, match, observe
-│   ├── run_ablation.py              # 2x2 surface-feature ablation
-│   ├── run_within_llm_ablation.py   # total_strip and neutral_rewrite on LLM transcripts
+│   ├── run_ablation.py              # 2×2 surface-feature ablation
+│   ├── run_within_llm_ablation.py   # T_∅ and T_r̃ on LLM transcripts
 │   ├── run_persuasion.py            # persuasion pilot at fixed action specs
 │   ├── test_transforms.py           # behavior-preservation tests for all four transforms
 │   ├── analyze_results.py           # post-hoc analysis and table printing
-│   └── analyze_filtered.py          # filtered analysis variant
+│   └── analyze_filtered.py
 ├── data/                            # SQLite DB and backups (gitignored)
 └── docs/
     ├── experiment.md                # formal notation, invariance property, ablation design
@@ -187,7 +217,7 @@ mirage-test/
 A new collaborator should read in this order:
 
 1. This file (pitch and results summary)
-2. [docs/primer.md](docs/primer.md) (end-to-end plain-language explanation, 10 minutes)
+2. [docs/primer.md](docs/primer.md) (end-to-end plain-language explanation, ~10 minutes)
 3. [docs/experiment.md](docs/experiment.md) (formal notation and design)
 4. [docs/architecture.md](docs/architecture.md) (code walkthrough and reproducibility)
 5. [docs/results.md](docs/results.md) (full results tables with interpretation)
@@ -196,13 +226,15 @@ A new collaborator should read in this order:
 
 ## Key references
 
-- Weisman, K., Dweck, C.S., Markman, E.M. (2017). Rethinking people's conceptions of mental life. *PNAS*, 114(43), 11374-11379.
-- Axelrod, R. (1984). *The Evolution of Cooperation*. Basic Books.
-- Nowak, M.A., Sigmund, K. (1993). A strategy of win-stay, lose-shift that outperforms tit-for-tat. *Nature*, 364, 56-58.
-- Akata, E. et al. (2023). Playing repeated games with Large Language Models. *arXiv:2305.16867*.
-- Epley, N., Waytz, A., Cacioppo, J.T. (2007). On seeing human: A three-factor theory of anthropomorphism. *Psychological Review*, 114(4), 864-886.
-
-Full bibliography in [docs/experiment.md](docs/experiment.md).
+- Akata, E. et al. (2025). Playing repeated games with large language models. *Nature Human Behaviour*. arXiv:2305.16867.
+- Park, C. et al. (2024). Do LLM agents have regret? A case study in online learning and games. arXiv:2403.16843.
+- Weisman, K., Dweck, C.S., Markman, E.M. (2017). Rethinking people's conceptions of mental life. *PNAS*, 114(43), 11374–11379.
+- Kosinski, M. (2024). Evaluating large language models in theory of mind tasks. *PNAS*, 121(45).
+- Zheng, L. et al. (2024). Judging LLM-as-a-Judge with MT-Bench and Chatbot Arena. *NeurIPS*. arXiv:2306.05685.
+- Wu, M. & Aji, A.F. (2025). Style over substance: Evaluation biases for large language models. *COLING*. arXiv:2307.03025.
+- Panickssery, A. et al. (2024). LLM evaluators recognize and favor their own generations. *NeurIPS*. arXiv:2404.13076.
+- Xie, S.M. et al. (2022). An explanation of in-context learning as implicit Bayesian inference. *ICLR*. arXiv:2111.02080.
+- Garg, S. et al. (2022). What can transformers learn in-context? *NeurIPS*. arXiv:2208.01066.
 
 ---
 
